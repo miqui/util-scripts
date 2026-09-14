@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 # git-workflow.sh — Git automation (SSH mode)
 # Usage:
-#   git-workflow.sh init   "commit message"           → initial push to main
-#   git-workflow.sh change "commit message" [branch]  → new branch + PR
-#   git-workflow.sh update "commit message"           → commit + push current PR branch
-#   git-workflow.sh pr     ["title"]                  → open PR for current pushed branch
+#   git-workflow.sh init   "commit message"                    → initial push to main
+#   git-workflow.sh change "commit message" [--branch name]    → new branch + PR
+#   git-workflow.sh update "commit message"                    → commit + push current PR branch
+#   git-workflow.sh pr     ["title"]                            → open PR for current pushed branch
+#
+# If the working tree is already clean when running "change" (e.g. you
+# pre-created the branch and committed manually), it will skip the commit
+# step and just push + open the PR using the existing commits.
 #
 # Requirements:
 #   - SSH key added to GitHub (ssh -T git@github.com should say "Hi <user>!")
@@ -15,7 +19,15 @@ set -euo pipefail
 
 COMMAND="${1:-}"
 COMMIT_MSG="${2:-"chore: auto-commit"}"
-BRANCH_NAME="${3:-}"
+shift $(( $# >= 2 ? 2 : $# )) 2>/dev/null || true
+
+BRANCH_NAME=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --branch|-b) BRANCH_NAME="${2:-}"; shift 2 ;;
+    *) echo "[git-workflow] ERROR: Unknown argument '$1'" >&2; exit 1 ;;
+  esac
+done
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -144,9 +156,12 @@ cmd_change() {
   if git diff --cached --quiet; then
     git add -A
   fi
-  git diff --cached --quiet && die "Nothing to commit on branch $BRANCH_NAME."
 
-  git commit -m "$COMMIT_MSG"
+  if git diff --cached --quiet; then
+    log "Nothing new to commit; using existing commits on $BRANCH_NAME."
+  else
+    git commit -m "$COMMIT_MSG"
+  fi
 
   log "Pushing branch via SSH..."
   git push -u origin "$BRANCH_NAME"
